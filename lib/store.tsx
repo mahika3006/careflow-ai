@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { 
   Patient, 
   Doctor, 
@@ -15,6 +15,8 @@ import {
 import { INITIAL_PATIENTS } from '@/lib/data/mock-patients';
 import { INITIAL_DOCTORS } from '@/lib/data/mock-doctors';
 import { DEFAULT_TRIAGE_RULES, evaluateTriageRules, calculateQueuePriority } from '@/lib/triage-rules';
+
+
 
 interface CareFlowContextType {
   patients: Patient[];
@@ -86,14 +88,13 @@ interface CareFlowContextType {
 
 const CareFlowContext = createContext<CareFlowContextType | null>(null);
 
-const STORAGE_KEY_PATIENTS = 'careflow_patients_v1';
-const STORAGE_KEY_DOCTORS = 'careflow_doctors_v1';
 const STORAGE_KEY_RULES = 'careflow_rules_v1';
 const STORAGE_KEY_LOGS = 'careflow_logs_v1';
 
 export function CareFlowProvider({ children }: { children: React.ReactNode }) {
   const [patients, setPatients] = useState<Patient[]>(INITIAL_PATIENTS);
   const [doctors, setDoctors] = useState<Doctor[]>(INITIAL_DOCTORS);
+
   const [rules, setRules] = useState<TriageRule[]>(DEFAULT_TRIAGE_RULES);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([
     {
@@ -147,72 +148,82 @@ export function CareFlowProvider({ children }: { children: React.ReactNode }) {
   const setTheme = (t: AppTheme) => {
     setThemeState(t);
     applyThemeClass(t);
-    try {
-      localStorage.setItem('careflow_theme', t);
-    } catch {}
+    try { localStorage.setItem('careflow_theme', t); } catch {}
   };
 
-  const toggleTheme = () => {
-    setTheme(theme === 'day' ? 'night' : 'day');
-  };
+  const toggleTheme = () => setTheme(theme === 'day' ? 'night' : 'day');
 
   const setSidebarCollapsed = (collapsed: boolean) => {
     setSidebarCollapsedState(collapsed);
-    try {
-      localStorage.setItem('careflow_sidebar_collapsed', String(collapsed));
-    } catch {}
+    try { localStorage.setItem('careflow_sidebar_collapsed', String(collapsed)); } catch {}
   };
 
-  const toggleSidebar = () => {
-    setSidebarCollapsed(!sidebarCollapsed);
-  };
+  const toggleSidebar = () => setSidebarCollapsed(!sidebarCollapsed);
 
-  // Load from localStorage if present
+  // ── Bootstrap: load UI prefs from localStorage ───────────
   useEffect(() => {
     try {
       const savedCollapsed = localStorage.getItem('careflow_sidebar_collapsed');
-      if (savedCollapsed !== null) {
-        setSidebarCollapsedState(savedCollapsed === 'true');
-      }
-    } catch {}
-  }, []);
-
-  // Load from localStorage if present
-  useEffect(() => {
-    try {
-      const p = localStorage.getItem(STORAGE_KEY_PATIENTS);
-      if (p) setPatients(JSON.parse(p));
-      const d = localStorage.getItem(STORAGE_KEY_DOCTORS);
-      if (d) setDoctors(JSON.parse(d));
-      const r = localStorage.getItem(STORAGE_KEY_RULES);
-      if (r) setRules(JSON.parse(r));
-      const l = localStorage.getItem(STORAGE_KEY_LOGS);
-      if (l) setAuditLogs(JSON.parse(l));
+      if (savedCollapsed !== null) setSidebarCollapsedState(savedCollapsed === 'true');
 
       const savedTheme = localStorage.getItem('careflow_theme') as AppTheme;
       if (savedTheme === 'day' || savedTheme === 'night') {
         setThemeState(savedTheme);
         applyThemeClass(savedTheme);
       }
-    } catch (e) {
-      console.warn('LocalStorage not available or parse failed', e);
-    }
+
+      const r = localStorage.getItem(STORAGE_KEY_RULES);
+      if (r) setRules(JSON.parse(r));
+    } catch {}
   }, []);
 
-  // Save changes to localStorage
-  const savePatients = (newPatients: Patient[]) => {
-    setPatients(newPatients);
-    try {
-      localStorage.setItem(STORAGE_KEY_PATIENTS, JSON.stringify(newPatients));
-    } catch {}
-  };
+  // ── Supabase Live Data Fetch ──────────────────────────────
+  useEffect(() => {
+    let isMounted = true;
+    async function loadFromDb() {
+      try {
+        const [patientsRes, doctorsRes, logsRes] = await Promise.all([
+          fetch('/api/patients'),
+          fetch('/api/doctors'),
+          fetch('/api/audit-logs'),
+        ]);
 
-  const saveDoctors = (newDoctors: Doctor[]) => {
+        if (patientsRes.ok) {
+          const pData = await patientsRes.json();
+          if (isMounted && Array.isArray(pData) && pData.length > 0) {
+            setPatients(pData);
+          }
+        }
+
+        if (doctorsRes.ok) {
+          const dData = await doctorsRes.json();
+          if (isMounted && Array.isArray(dData) && dData.length > 0) {
+            setDoctors(dData);
+            setSelectedDoctorId((prev) => (dData.some((d: Doctor) => d.id === prev) ? prev : dData[0].id));
+          }
+        }
+
+        if (logsRes.ok) {
+          const lData = await logsRes.json();
+          if (isMounted && Array.isArray(lData) && lData.length > 0) {
+            setAuditLogs(lData);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load from Supabase backend:', err);
+      }
+    }
+    loadFromDb();
+    return () => { isMounted = false; };
+  }, []);
+
+  const savePatients = useCallback((newPatients: Patient[]) => {
+    setPatients(newPatients);
+  }, []);
+
+  const saveDoctors = useCallback((newDoctors: Doctor[]) => {
     setDoctors(newDoctors);
-    try {
-      localStorage.setItem(STORAGE_KEY_DOCTORS, JSON.stringify(newDoctors));
-    } catch {}
-  };
+  }, []);
 
   const logAudit = (
     actorName: string,
@@ -237,13 +248,14 @@ export function CareFlowProvider({ children }: { children: React.ReactNode }) {
       newValue,
       rationale,
     };
-    setAuditLogs((prev) => {
-      const updated = [entry, ...prev];
-      try {
-        localStorage.setItem(STORAGE_KEY_LOGS, JSON.stringify(updated));
-      } catch {}
-      return updated;
-    });
+    setAuditLogs((prev) => [entry, ...prev]);
+
+    // Sync to Supabase audit_log
+    fetch('/api/audit-logs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(entry),
+    }).catch(() => {});
   };
 
   // Register New Patient with automated AI Triage evaluation
@@ -390,6 +402,24 @@ export function CareFlowProvider({ children }: { children: React.ReactNode }) {
 
     const updatedList = [newPatient, ...patients];
     savePatients(updatedList);
+
+    // Sync to Supabase
+    fetch('/api/patients', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...newPatient,
+        incidentDescription: newPatient.incidentDescription || newPatient.reportedSymptoms?.join(', '),
+      }),
+    })
+      .then((res) => res.json())
+      .then((saved) => {
+        if (saved && saved.id) {
+          setPatients((curr) => curr.map((p) => (p.id === id ? saved : p)));
+        }
+      })
+      .catch((e) => console.warn('Supabase register error:', e));
+
     logAudit(
       currentRole,
       currentRole,
@@ -405,12 +435,16 @@ export function CareFlowProvider({ children }: { children: React.ReactNode }) {
 
   const updatePatient = (id: string, updates: Partial<Patient>) => {
     const updated = patients.map((p) => {
-      if (p.id === id) {
-        return { ...p, ...updates };
-      }
+      if (p.id === id) return { ...p, ...updates };
       return p;
     });
     savePatients(updated);
+
+    fetch(`/api/patients/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    }).catch((e) => console.warn('Supabase updatePatient error:', e));
   };
 
   // Human Review: Clinician confirms or overrides AI triage
@@ -461,6 +495,17 @@ export function CareFlowProvider({ children }: { children: React.ReactNode }) {
     });
 
     savePatients(updatedPatients);
+
+    fetch(`/api/patients/${patientId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clinicianConfirmedCategory: category,
+        overrideReason: reason,
+        overrideClinician: clinicianName,
+      }),
+    }).catch((e) => console.warn('Supabase override error:', e));
+
     logAudit(
       clinicianName,
       'DOCTOR',
@@ -524,6 +569,13 @@ export function CareFlowProvider({ children }: { children: React.ReactNode }) {
     savePatients(updatedPatients);
     saveDoctors(updatedDoctors);
 
+    fetch(`/api/patients/${patientId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assignedDoctorId: doctorId }),
+    }).catch((e) => console.warn('Supabase assign error:', e));
+
+
     logAudit(
       actorName,
       currentRole,
@@ -569,6 +621,12 @@ export function CareFlowProvider({ children }: { children: React.ReactNode }) {
       return p;
     });
     savePatients(updatedPatients);
+
+    fetch(`/api/patients/${patientId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ consultation: data }),
+    }).catch((e) => console.warn('Supabase updateConsultation error:', e));
   };
 
   // Add prescription item
@@ -608,6 +666,13 @@ export function CareFlowProvider({ children }: { children: React.ReactNode }) {
       return p;
     });
     savePatients(updatedPatients);
+
+    fetch(`/api/patients/${patientId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ consultation: { prescriptions: [item] } }),
+    }).catch((e) => console.warn('Supabase addPrescription error:', e));
+
     logAudit(
       actorName,
       'DOCTOR',
@@ -644,6 +709,17 @@ export function CareFlowProvider({ children }: { children: React.ReactNode }) {
       return p;
     });
     savePatients(updatedPatients);
+
+    fetch(`/api/patients/${patientId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        consultation: {
+          prescriptions: [{ id: prescriptionId, approvedByClinician: true }],
+        },
+      }),
+    }).catch((e) => console.warn('Supabase approveRx error:', e));
+
     logAudit(
       actorName,
       'DOCTOR',
@@ -688,6 +764,13 @@ export function CareFlowProvider({ children }: { children: React.ReactNode }) {
       return p;
     });
     savePatients(updatedPatients);
+
+    fetch(`/api/patients/${patientId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'DISCHARGED' }),
+    }).catch((e) => console.warn('Supabase finalize error:', e));
+
     logAudit(
       actorName,
       'DOCTOR',
@@ -729,6 +812,13 @@ export function CareFlowProvider({ children }: { children: React.ReactNode }) {
       return p;
     });
     savePatients(updatedPatients);
+
+    fetch(`/api/patients/${patientId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ consentStatus: status }),
+    }).catch((e) => console.warn('Supabase consent error:', e));
+
     logAudit(
       actorName,
       currentRole,
@@ -743,14 +833,22 @@ export function CareFlowProvider({ children }: { children: React.ReactNode }) {
 
   // Toggle Doctor availability
   const toggleDoctorAvailability = (doctorId: string) => {
+    let nextAvail = true;
     const updatedDoctors = doctors.map((d) => {
       if (d.id === doctorId) {
-        const nextStatus = d.availabilityStatus === 'AVAILABLE' ? 'OFF_DUTY' : 'AVAILABLE';
+        nextAvail = d.availabilityStatus === 'OFF_DUTY';
+        const nextStatus = nextAvail ? 'AVAILABLE' : 'OFF_DUTY';
         return { ...d, availabilityStatus: nextStatus as any };
       }
       return d;
     });
     saveDoctors(updatedDoctors);
+
+    fetch(`/api/doctors/${doctorId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_available: nextAvail }),
+    }).catch((e) => console.warn('Supabase toggle doctor error:', e));
   };
 
   // Update Triage Rule
@@ -776,6 +874,11 @@ export function CareFlowProvider({ children }: { children: React.ReactNode }) {
   const deletePatientRecord = (patientId: string, reason: string) => {
     const remaining = patients.filter((p) => p.id !== patientId);
     savePatients(remaining);
+
+    fetch(`/api/patients/${patientId}`, {
+      method: 'DELETE',
+    }).catch((e) => console.warn('Supabase delete error:', e));
+
     logAudit(
       currentRole,
       currentRole,

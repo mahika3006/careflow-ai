@@ -140,7 +140,7 @@ export function evaluateTriageRules(
     if (spo2Num < 90) {
       flags.push({
         id: 'FLAG_HYPOXIA_CRITICAL',
-        flag: 'Critical Hypoxia (SpO2 < 90%)',
+        flag: 'Critical Low Oxygen Signal (SpO2 < 90%)',
         severity: 'CRITICAL',
         category: 'RESPIRATORY',
         evidence: `SpO2 measured at ${spo2Num}%, below safety threshold of 90%`,
@@ -149,7 +149,7 @@ export function evaluateTriageRules(
     } else if (spo2Num <= 93) {
       flags.push({
         id: 'FLAG_HYPOXIA_MODERATE',
-        flag: 'Moderate Hypoxia (SpO2 91-93%)',
+        flag: 'Moderate Low Oxygen Signal (SpO2 91-93%)',
         severity: 'WARNING',
         category: 'RESPIRATORY',
         evidence: `SpO2 measured at ${spo2Num}% on room air`,
@@ -164,10 +164,10 @@ export function evaluateTriageRules(
   if (hasCardiacSymptoms) {
     flags.push({
       id: 'FLAG_ACS_SUSPECT',
-      flag: 'Potential Acute Coronary Syndrome (ACS)',
+      flag: 'Potential Cardiac Urgency Signal',
       severity: 'CRITICAL',
       category: 'CARDIAC',
-      evidence: 'Patient reported crushing retrosternal pain radiating to arm/jaw with autonomic symptoms',
+      evidence: 'Patient reported acute retrosternal chest pain radiating to arm/jaw or associated diaphoresis',
       sourceRef: 'Reported Symptoms & Audio Intake',
     });
   }
@@ -177,7 +177,7 @@ export function evaluateTriageRules(
     if (parsedSys >= 180 || parsedDia >= 120) {
       flags.push({
         id: 'FLAG_HYPERTENSIVE_CRISIS',
-        flag: 'Hypertensive Crisis (BP >= 180/120 mmHg)',
+        flag: 'Severely Elevated Blood Pressure Signal (BP >= 180/120 mmHg)',
         severity: 'CRITICAL',
         category: 'CARDIAC',
         evidence: `BP recorded as ${vitals.bloodPressure}`,
@@ -186,7 +186,7 @@ export function evaluateTriageRules(
     } else if (isPregnant && (parsedSys >= 160 || parsedDia >= 110)) {
       flags.push({
         id: 'FLAG_PREECLAMPSIA_CRITICAL',
-        flag: 'Severe Preeclampsia / Impending Eclampsia Alert',
+        flag: 'Obstetric High Blood Pressure Signal',
         severity: 'CRITICAL',
         category: 'PREGNANCY',
         evidence: `Third trimester pregnancy with BP ${vitals.bloodPressure} and associated hyperreflexia/visual symptoms`,
@@ -200,7 +200,7 @@ export function evaluateTriageRules(
   if (!isNaN(gcsNum) && gcsNum < 13) {
     flags.push({
       id: 'FLAG_DEPRESSED_MENTATION',
-      flag: 'Depressed Level of Consciousness (GCS < 13)',
+      flag: 'Depressed Responsiveness Signal (GCS < 13)',
       severity: 'CRITICAL',
       category: 'NEUROLOGICAL',
       evidence: `Glasgow Coma Scale assessed at ${gcsNum}/15`,
@@ -213,7 +213,7 @@ export function evaluateTriageRules(
   if (bleedingKeywords.some((kw) => text.includes(kw))) {
     flags.push({
       id: 'FLAG_ACTIVE_BLEED',
-      flag: 'Active or Potentially Uncontrolled Bleeding',
+      flag: 'Acute Hemorrhage / Bleeding Signal',
       severity: 'CRITICAL',
       category: 'HEMORRHAGE',
       evidence: 'Patient reported ongoing acute blood loss',
@@ -225,7 +225,7 @@ export function evaluateTriageRules(
   if (patientAge < 10 && !isNaN(tempNum) && tempNum >= 103.5) {
     flags.push({
       id: 'FLAG_PEDIATRIC_HYPERPYREXIA',
-      flag: 'Pediatric Hyperpyrexia (Temp >= 103.5°F)',
+      flag: 'Pediatric Elevated Temperature Signal (Temp >= 103.5°F)',
       severity: 'WARNING',
       category: 'PEDIATRIC',
       evidence: `Core temperature recorded at ${vitals.temperature}°F in a ${patientAge}-year-old child`,
@@ -335,9 +335,9 @@ export function getUrgencyStyles(category: UrgencyCategory): {
   switch (category) {
     case 'EMERGENCY':
       return {
-        label: 'Emergency (Immediate)',
+        label: 'POSSIBLE EMERGENCY: clinician review needed',
         badgeBg: 'bg-red-50 text-red-700 border-red-200',
-        badgeText: 'text-red-700',
+        badgeText: 'text-red-700 font-bold',
         borderColor: 'border-red-500',
         dotColor: 'bg-red-600 animate-pulse',
         iconBg: 'bg-red-100 text-red-700',

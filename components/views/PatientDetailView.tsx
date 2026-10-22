@@ -30,7 +30,7 @@ import { useCareFlow } from '@/lib/store';
 import { UrgencyCategory, Patient } from '@/types';
 import { getUrgencyStyles, isOverdue } from '@/lib/triage-rules';
 import { generatePrintableReportHtml } from '@/lib/reports';
-import { speakWithPiper, stopPiperSpeech } from '@/lib/audio/speech-services';
+import { speakWithGnani, stopGnaniSpeech } from '@/lib/audio/speech-services';
 
 interface PatientDetailViewProps {
   patientId: string;
@@ -45,7 +45,8 @@ export function PatientDetailView({ patientId, onBack, onOpenDoctorWorkspace }: 
     currentRole, 
     confirmOrOverrideTriage, 
     assignDoctorToPatient, 
-    updatePatientConsent 
+    updatePatientConsent,
+    updatePatient
   } = useCareFlow();
 
   const patient = patients.find((p) => p.id === patientId);
@@ -60,24 +61,30 @@ export function PatientDetailView({ patientId, onBack, onOpenDoctorWorkspace }: 
   const [overrideReason, setOverrideReason] = useState('');
   const [clinicianNameInput, setClinicianNameInput] = useState('Dr. Vikramaditya Rao');
 
+  // Doctor Clinical Verification & Editing states
+  const [isEditingClinicalSynthesis, setIsEditingClinicalSynthesis] = useState(false);
+  const [editedSynthesisText, setEditedSynthesisText] = useState(patient?.aiAssessment?.structuredSummary || '');
+  const [selectedGroundingSource, setSelectedGroundingSource] = useState<string | null>(null);
+
   // Doctor Assign Modal State
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [assignDoctorId, setAssignDoctorId] = useState('');
 
-  // Piper Neural TTS states
+  // Gnani Neural TTS states
   const [isPlayingTriageTTS, setIsPlayingTriageTTS] = useState(false);
   const [isPlayingRxTTS, setIsPlayingRxTTS] = useState(false);
 
   const handlePlayTriageTTS = () => {
     if (isPlayingTriageTTS) {
-      stopPiperSpeech();
+      stopGnaniSpeech();
       setIsPlayingTriageTTS(false);
       return;
     }
     const flags = patient?.aiAssessment?.warningFlags?.map((f) => `${f.flag}: ${f.evidence}`).join('. ') || '';
     const textToSpeak = `Patient ${patient?.name || ''}, ${patient?.age || ''} years old. Triage category: ${effectiveCategory}. ${patient?.aiAssessment?.structuredSummary || ''}. Warning flags: ${flags}`;
-    speakWithPiper(textToSpeak, {
+    speakWithGnani(textToSpeak, {
       language: patient?.originalLanguage || 'en',
+      voice: 'Shivani',
       onStart: () => setIsPlayingTriageTTS(true),
       onEnd: () => setIsPlayingTriageTTS(false),
       onError: () => setIsPlayingTriageTTS(false),
@@ -86,15 +93,16 @@ export function PatientDetailView({ patientId, onBack, onOpenDoctorWorkspace }: 
 
   const handlePlayPrescriptionTTS = () => {
     if (isPlayingRxTTS) {
-      stopPiperSpeech();
+      stopGnaniSpeech();
       setIsPlayingRxTTS(false);
       return;
     }
     const rxs = patient?.consultation?.prescriptions?.map((rx) => `${rx.drugName}, ${rx.dosage}, ${rx.frequency}. Instructions: ${rx.instructions}`).join('. ') || 'No medications prescribed';
     const notes = patient?.consultation?.clinicalAssessment || '';
     const textToSpeak = `Doctor consultation instructions for ${patient?.name || ''}. Assessment: ${notes}. Prescriptions: ${rxs}`;
-    speakWithPiper(textToSpeak, {
+    speakWithGnani(textToSpeak, {
       language: patient?.originalLanguage || 'en',
+      voice: 'Shivani',
       onStart: () => setIsPlayingRxTTS(true),
       onEnd: () => setIsPlayingRxTTS(false),
       onError: () => setIsPlayingRxTTS(false),
@@ -159,6 +167,49 @@ export function PatientDetailView({ patientId, onBack, onOpenDoctorWorkspace }: 
     setShowAssignModal(false);
   };
 
+  const handleDirectApprove = () => {
+    confirmOrOverrideTriage(
+      patient.id,
+      patient.provisionalCategory,
+      'Attending clinician reviewed and approved AI triage suggestion and assessment.',
+      clinicianNameInput
+    );
+  };
+
+  const handleSaveEditedSynthesis = () => {
+    if (!patient.aiAssessment) return;
+    const updatedAssessment = {
+      ...patient.aiAssessment,
+      structuredSummary: editedSynthesisText,
+    };
+    updatePatient(patient.id, {
+      aiAssessment: updatedAssessment,
+    });
+    setIsEditingClinicalSynthesis(false);
+    fetch('/api/audit-logs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        actor: clinicianNameInput,
+        role: 'DOCTOR',
+        action: 'EDIT_CLINICAL_SYNTHESIS',
+        entityType: 'TRIAGE_ASSESSMENT',
+        entityId: patient.id,
+        notes: 'Clinician edited clinical synthesis notes before sign-off',
+      }),
+    }).catch((e) => console.warn('Audit error:', e));
+  };
+
+  const handleSourceClick = (source: string) => {
+    setSelectedGroundingSource(source);
+    const reportMedia = patient.mediaEvidence?.find(
+      (m) => m.type === 'document' || m.title?.toLowerCase().includes('.pdf') || m.title?.toLowerCase().includes('report')
+    );
+    if (reportMedia?.url) {
+      window.open(reportMedia.url, '_blank');
+    }
+  };
+
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
       {/* Top Action & Navigation Bar */}
@@ -180,7 +231,7 @@ export function PatientDetailView({ patientId, onBack, onOpenDoctorWorkspace }: 
                 {patient.id}
               </span>
               <span className={`px-3 py-1 rounded-full text-xs font-black border ${styles.badgeBg}`}>
-                {effectiveCategory}
+                {styles.label}
               </span>
               {patient.clinicianConfirmedCategory && (
                 <span className="text-[11px] text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/70 px-2.5 py-1 rounded-full font-bold border border-emerald-300 dark:border-emerald-700 flex items-center gap-1 shadow-2xs">
@@ -447,7 +498,7 @@ export function PatientDetailView({ patientId, onBack, onOpenDoctorWorkspace }: 
                           </div>
                           <div className="flex items-center gap-2">
                             <span className="text-[9px] font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                              faster-whisper / IndicWhisper Aligned
+                              Gnani.ai Prisma STT Aligned
                             </span>
                             <span className="text-[10px] text-slate-400 font-mono">
                               {media.durationOrPages}
@@ -589,10 +640,10 @@ export function PatientDetailView({ patientId, onBack, onOpenDoctorWorkspace }: 
                       ? 'bg-indigo-600 text-white border-indigo-700 animate-pulse'
                       : 'bg-white text-slate-700 border-slate-300 hover:border-indigo-400 shadow-2xs'
                   }`}
-                  title="Play audio via Piper neural TTS"
+                  title="Play audio via Gnani.ai neural TTS"
                 >
                   {isPlayingTriageTTS ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5 text-indigo-600" />}
-                  <span>{isPlayingTriageTTS ? 'Stop Piper' : 'Listen (Piper TTS)'}</span>
+                  <span>{isPlayingTriageTTS ? 'Stop Voice' : 'Listen (Gnani TTS)'}</span>
                 </button>
                 <span className={`text-[10px] font-mono px-2 py-0.5 rounded border font-bold ${
                   patient.aiAssessment?.modelVersion?.toLowerCase().includes('gemma')
@@ -610,17 +661,197 @@ export function PatientDetailView({ patientId, onBack, onOpenDoctorWorkspace }: 
             <div className="p-2.5 bg-amber-50/80 border border-amber-200 rounded text-[11px] text-amber-900 mb-3 flex items-start space-x-2">
               <HelpCircle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
               <span>
-                <strong>Provisional Assessment:</strong> Generated by algorithm. AI does not diagnose or prescribe. Final triage classification and clinical care must be confirmed by attending staff.
+                <strong>Provisional Assessment:</strong> Generated by algorithm. AI does not diagnose and does not make final decisions. Urgency signals must be reviewed and signed off by clinician.
               </span>
+            </div>
+
+            {/* Doctor Approve / Edit / Override Step */}
+            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-3 mb-4">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-slate-700 uppercase tracking-wider block">
+                  Doctor Clinical Verification (Required before note finalization)
+                </span>
+                {patient.clinicianConfirmedCategory ? (
+                  <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-300 flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                    Verified ({patient.clinicianConfirmedCategory})
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full border border-amber-300">
+                    Pending Doctor Sign-Off
+                  </span>
+                )}
+              </div>
+
+              {patient.clinicianConfirmedCategory ? (
+                <p className="text-[11px] text-slate-600">
+                  Confirmed by <strong>{patient.overrideClinician || 'Attending Clinician'}</strong>. Reason: <em>"{patient.overrideReason || 'Approved AI triage assessment'}"</em>
+                </p>
+              ) : (
+                <p className="text-[11px] text-slate-600">
+                  Review the extracted history, unmeasured vitals check, and urgency signals. Clinician confirmation is mandatory.
+                </p>
+              )}
+
+              <div className="flex flex-wrap gap-2 pt-1">
+                {!patient.clinicianConfirmedCategory && (
+                  <button
+                    type="button"
+                    onClick={handleDirectApprove}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition-all active:scale-95"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Approve Triage</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setIsEditingClinicalSynthesis(!isEditingClinicalSynthesis)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 shadow-2xs transition-all"
+                >
+                  <Edit3 className="w-3.5 h-3.5 text-slate-500" />
+                  <span>{isEditingClinicalSynthesis ? 'Cancel Edit' : 'Edit Assessment'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOverrideCategory(effectiveCategory);
+                    setOverrideReason(patient.overrideReason || '');
+                    setShowOverrideModal(true);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-900 text-white shadow-2xs transition-all active:scale-95"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Override Priority</span>
+                </button>
+              </div>
+
+              {isEditingClinicalSynthesis && (
+                <div className="pt-2 border-t border-slate-200 space-y-2">
+                  <textarea
+                    value={editedSynthesisText}
+                    onChange={(e) => setEditedSynthesisText(e.target.value)}
+                    rows={3}
+                    className="w-full p-2 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-emerald-600"
+                    placeholder="Edit clinical synthesis notes..."
+                  />
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={handleSaveEditedSynthesis}
+                      className="px-3 py-1 bg-emerald-700 hover:bg-emerald-800 text-white rounded text-xs font-bold"
+                    >
+                      Save Synthesis Edits
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Structured Summary */}
             <div className="text-xs text-slate-700 mb-4 bg-slate-50 p-3 rounded border border-slate-200">
               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
-                Clinical Synthesis
+                Clinical Synthesis & Observable Signals
               </span>
               <p className="font-medium leading-relaxed">{patient.aiAssessment?.structuredSummary}</p>
             </div>
+
+            {/* Grounded Reasons with source chips */}
+            {patient.aiAssessment?.reasons && patient.aiAssessment.reasons.length > 0 && (
+              <div className="space-y-2 mb-4">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                  Grounded Urgency Reasons ({patient.aiAssessment.reasons.length})
+                </span>
+                <div className="space-y-1.5">
+                  {patient.aiAssessment.reasons.map((r, i) => (
+                    <div key={i} className="p-2.5 bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-slate-200 dark:border-slate-700 text-xs flex items-start justify-between gap-2">
+                      <span className="text-slate-800 dark:text-slate-200 font-medium leading-relaxed">{r.text}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleSourceClick(r.source)}
+                        className="inline-flex items-center gap-1 text-[10px] font-mono font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded shrink-0 transition-colors cursor-pointer"
+                        title="Click to view grounding source or open report"
+                      >
+                        <span>{r.source}</span>
+                        <ExternalLink className="w-2.5 h-2.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Clinical & Safety Signal Flags */}
+            {patient.aiAssessment?.signalFlags && patient.aiAssessment.signalFlags.length > 0 && (
+              <div className="space-y-2 mb-4">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                  Clinical & Safety Signal Flags ({patient.aiAssessment.signalFlags.length})
+                </span>
+                <div className="space-y-2">
+                  {patient.aiAssessment.signalFlags.map((sf, i) => {
+                    let badgeColor = 'bg-amber-50 border-amber-200 text-amber-950';
+                    let tagText = 'SIGNAL';
+                    if (sf.type === 'missing') {
+                      badgeColor = 'bg-amber-50 border-amber-200 text-amber-950';
+                      tagText = 'MISSING DATA SIGNAL';
+                    } else if (sf.type === 'conflict') {
+                      badgeColor = 'bg-purple-50 border-purple-200 text-purple-950';
+                      tagText = 'HISTORY CONFLICT SIGNAL';
+                    } else if (sf.type === 'suspicious_input') {
+                      badgeColor = 'bg-red-50 border-red-200 text-red-950';
+                      tagText = 'SUSPICIOUS INPUT SIGNAL';
+                    } else if (sf.type === 'low_confidence') {
+                      badgeColor = 'bg-orange-50 border-orange-200 text-orange-950';
+                      tagText = 'LOW CONFIDENCE SIGNAL';
+                    }
+
+                    return (
+                      <div key={i} className={`p-2.5 rounded-lg border text-xs ${badgeColor}`}>
+                        <div className="flex items-center justify-between font-bold mb-1">
+                          <span className="flex items-center gap-1.5">
+                            <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+                            {tagText}
+                          </span>
+                        </div>
+                        <p className="text-[11px] font-medium leading-relaxed">{sf.text}</p>
+                        {sf.sources && sf.sources.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1.5 pt-1 border-t border-black/5">
+                            {sf.sources.map((src, si) => (
+                              <button
+                                key={si}
+                                type="button"
+                                onClick={() => handleSourceClick(src)}
+                                className="text-[9px] font-mono font-bold bg-white/80 border border-current px-1.5 py-0.2 rounded hover:underline cursor-pointer"
+                              >
+                                Source: {src}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* First Aid Steps */}
+            {patient.aiAssessment?.firstAidSteps && patient.aiAssessment.firstAidSteps.length > 0 && (
+              <div className="space-y-2 mb-4 p-3 bg-red-50/50 rounded-lg border border-red-200 text-xs">
+                <span className="text-[10px] font-bold text-red-900 uppercase tracking-wider block">
+                  First Aid / Stabilization Guidance (Life-Saving Only)
+                </span>
+                <ol className="list-decimal list-inside space-y-1 text-slate-800 text-[11px] font-medium">
+                  {patient.aiAssessment.firstAidSteps.map((step, idx) => (
+                    <li key={idx} className={step.includes('112') ? 'font-bold text-red-700' : ''}>
+                      {step}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
 
             {/* Warning Flags */}
             <div className="space-y-2 mb-4">
@@ -709,10 +940,10 @@ export function PatientDetailView({ patientId, onBack, onOpenDoctorWorkspace }: 
                         ? 'bg-indigo-600 text-white border-indigo-700 animate-pulse'
                         : 'bg-white text-slate-700 border-slate-300 hover:border-indigo-400 shadow-2xs'
                     }`}
-                    title="Listen to prescription & instructions via Piper TTS"
+                    title="Listen to prescription & instructions via Gnani TTS"
                   >
                     {isPlayingRxTTS ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5 text-indigo-600" />}
-                    <span>{isPlayingRxTTS ? 'Stop Piper' : 'Listen Rx (Piper TTS)'}</span>
+                    <span>{isPlayingRxTTS ? 'Stop Voice' : 'Listen Rx (Gnani TTS)'}</span>
                   </button>
                 )}
                 {patient.assignedDoctorName && (
@@ -936,6 +1167,44 @@ export function PatientDetailView({ patientId, onBack, onOpenDoctorWorkspace }: 
                 className="px-4 py-1.5 rounded text-xs font-bold bg-[#0F2E22] hover:bg-[#164232] text-white"
               >
                 Confirm Doctor Assignment
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Grounding Source Modal */}
+      {selectedGroundingSource && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg max-w-lg w-full p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                <FileText className="w-4 h-4 text-emerald-700" />
+                Citation & Evidence Source
+              </h3>
+              <button onClick={() => setSelectedGroundingSource(null)} className="text-slate-400 hover:text-slate-600">
+                <XCircle className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-3 text-xs">
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                  Report Grounding Citation
+                </span>
+                <p className="font-mono text-xs font-semibold text-indigo-700">
+                  {selectedGroundingSource}
+                </p>
+              </div>
+              <p className="text-slate-600 leading-relaxed text-[11px]">
+                This reason was extracted directly from verified clinical evidence (uploaded medical report or patient intake). The AI model is strictly grounded to these documented statements.
+              </p>
+            </div>
+            <div className="flex justify-end pt-2 border-t border-slate-200">
+              <button
+                onClick={() => setSelectedGroundingSource(null)}
+                className="px-4 py-1.5 rounded text-xs font-bold bg-slate-800 hover:bg-slate-900 text-white"
+              >
+                Close Viewer
               </button>
             </div>
           </div>

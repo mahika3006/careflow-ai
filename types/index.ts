@@ -43,6 +43,17 @@ export interface WarningFlag {
   sourceRef: string; // e.g., "audio_rec_01 @ 00:14" or "ecg_lead_ii.png"
 }
 
+export interface TriageReason {
+  text: string;
+  source: string;
+}
+
+export interface TriageSignalFlag {
+  type: 'missing' | 'conflict' | 'low_confidence' | 'suspicious_input';
+  text: string;
+  sources: string[];
+}
+
 export interface AIAssessment {
   structuredSummary: string;
   warningFlags: WarningFlag[];
@@ -55,6 +66,11 @@ export interface AIAssessment {
   modelVersion: string;
   assessedAt: string;
   humanReviewRequired: boolean;
+  reasons?: TriageReason[];
+  signalFlags?: TriageSignalFlag[];
+  firstAidSteps?: string[];
+  urgencySuggestion?: 'immediate' | 'urgent' | 'moderate' | 'low' | 'unclear';
+  extractedHistory?: any;
 }
 
 export interface TranscriptSegment {
