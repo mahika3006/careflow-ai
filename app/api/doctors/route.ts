@@ -45,7 +45,7 @@ export async function GET() {
       return {
         id: d.id,
         name: d.full_name || 'Dr. Physician',
-        avatar: d.photo_path || 'demo/doctors/doctor_01.jpg',
+        avatar: d.photo_path || '',
         qualifications: d.qualification || 'MBBS, MD',
         registrationNumber: `MCI-2018-${d.id.slice(0, 5).toUpperCase()}`,
         verifiedRegistration: true,
@@ -84,7 +84,7 @@ export async function POST(request: Request) {
         qualification: body.qualifications || body.qualification,
         specialization: Array.isArray(body.specializations) ? body.specializations[0] : (body.specialization || 'General Medicine'),
         experience_years: body.yearsOfExperience || body.experience_years || 5,
-        photo_path: body.avatar || body.photo_path || 'demo/doctors/doctor_01.jpg',
+        photo_path: body.avatar || body.photo_path || '',
         is_available: body.is_available ?? true,
       })
       .select()

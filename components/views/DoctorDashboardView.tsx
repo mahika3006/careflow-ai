@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Stethoscope, 
   CheckCircle2, 
@@ -16,14 +16,16 @@ import {
   Pill, 
   Printer, 
   Save, 
-  Lock,
-  Calendar,
-  Send,
-  HelpCircle
+  Lock, 
+  Calendar, 
+  Send, 
+  HelpCircle,
+  ArrowUpRight
 } from 'lucide-react';
 import { useCareFlow } from '@/lib/store';
-import { getUrgencyStyles, isOverdue } from '@/lib/triage-rules';
+import { getUrgencyStyles, isOverdue, sortPatientsByPriority } from '@/lib/triage-rules';
 import { generatePrintableReportHtml } from '@/lib/reports';
+import { UserAvatar } from '@/components/ui/UserAvatar';
 
 interface DoctorDashboardViewProps {
   onSelectPatient: (patientId: string) => void;
@@ -44,8 +46,11 @@ export function DoctorDashboardView({ onSelectPatient }: DoctorDashboardViewProp
 
   const doctor = doctors.find((d) => d.id === selectedDoctorId) || doctors[0];
 
-  // Assigned patients for this doctor
-  const assignedPatients = patients.filter((p) => p.assignedDoctorId === doctor.id);
+  // Active assigned patients for this doctor (excluding discharged), strictly sorted by standardized priority
+  const assignedPatients = useMemo(() => {
+    const list = patients.filter((p) => p.assignedDoctorId === doctor.id && p.status !== 'DISCHARGED');
+    return sortPatientsByPriority(list);
+  }, [patients, doctor.id]);
 
   // Selected patient within the doctor's consultation workspace
   const [activePatientId, setActivePatientId] = useState<string>(
@@ -165,10 +170,12 @@ export function DoctorDashboardView({ onSelectPatient }: DoctorDashboardViewProp
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs p-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center space-x-4">
-            <img
+            <UserAvatar
+              name={doctor.name}
               src={doctor.avatar}
-              alt={doctor.name}
-              className="w-16 h-16 rounded-2xl object-cover border-2 border-emerald-500/60 shadow-md shadow-emerald-950/20"
+              size="2xl"
+              showStatus
+              status={doctor.availabilityStatus}
             />
             <div>
               <div className="flex items-center space-x-2">

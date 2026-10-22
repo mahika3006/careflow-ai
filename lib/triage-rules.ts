@@ -275,23 +275,84 @@ export function evaluateTriageRules(
  * Emergency cases receive priority >= 10,000, guaranteed top position.
  * Waiting time dynamically boosts score to prevent starvation.
  */
+export const PRIORITY_RANK: Record<UrgencyCategory, number> = {
+  EMERGENCY: 1,
+  URGENT: 2,
+  NEEDS_REVIEW: 3,
+  ROUTINE: 4,
+};
+
+export function getPatientEffectiveCategory(patient: Patient): UrgencyCategory {
+  return patient.clinicianConfirmedCategory || patient.provisionalCategory || 'ROUTINE';
+}
+
+export function getPriorityRank(category: UrgencyCategory): number {
+  return PRIORITY_RANK[category] ?? 4;
+}
+
+/**
+ * Standardized Priority Comparator:
+ * Guarantees Emergency (1) -> Urgent (2) -> Needs Review (3) -> Routine (4).
+ * Within the same priority group, preserves the provided secondarySort comparator.
+ */
+export function comparePatientsByPriority(
+  a: Patient,
+  b: Patient,
+  secondarySort?: (a: Patient, b: Patient) => number
+): number {
+  const rankA = getPriorityRank(getPatientEffectiveCategory(a));
+  const rankB = getPriorityRank(getPatientEffectiveCategory(b));
+
+  if (rankA !== rankB) {
+    return rankA - rankB; // Ascending rank: 1 before 2 before 3 before 4
+  }
+
+  if (secondarySort) {
+    return secondarySort(a, b);
+  }
+
+  // Default secondary: longest waiting duration first, then arrival time
+  const waitDiff = (b.waitingDurationMinutes || 0) - (a.waitingDurationMinutes || 0);
+  if (waitDiff !== 0) return waitDiff;
+  return new Date(b.arrivalTime).getTime() - new Date(a.arrivalTime).getTime();
+}
+
+/**
+ * Helper to sort any patient array by the standard priority ordering.
+ */
+export function sortPatientsByPriority(
+  patients: Patient[],
+  secondarySort?: (a: Patient, b: Patient) => number
+): Patient[] {
+  return [...patients].sort((a, b) => comparePatientsByPriority(a, b, secondarySort));
+}
+
+/**
+ * Calculates priority score for sorting the queue.
+ * Strict base tiers guarantee:
+ * Emergency >= 10,000,000
+ * Urgent >= 5,000,000
+ * Needs Review >= 1,000,000
+ * Routine >= 100,000
+ */
 export function calculateQueuePriority(patient: Patient): number {
-  const effectiveCategory = patient.clinicianConfirmedCategory || patient.provisionalCategory;
+  const effectiveCategory = getPatientEffectiveCategory(patient);
   
-  // Base score per category
+  // Base score per category with absolute tier protection
   let baseScore = 0;
   switch (effectiveCategory) {
     case 'EMERGENCY':
-      baseScore = 100000;
+      baseScore = 10000000;
       break;
     case 'URGENT':
-      baseScore = 50000;
+      baseScore = 5000000;
       break;
     case 'NEEDS_REVIEW':
-      baseScore = 20000;
+      baseScore = 1000000;
       break;
     case 'ROUTINE':
-      baseScore = 5000;
+    default:
+      baseScore = 100000;
       break;
   }
 

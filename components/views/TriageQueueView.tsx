@@ -15,8 +15,15 @@ import {
   Info
 } from 'lucide-react';
 import { useCareFlow } from '@/lib/store';
-import { getUrgencyStyles, isOverdue, calculateQueuePriority } from '@/lib/triage-rules';
+import { 
+  getUrgencyStyles, 
+  isOverdue, 
+  calculateQueuePriority, 
+  comparePatientsByPriority, 
+  getPatientEffectiveCategory 
+} from '@/lib/triage-rules';
 import { UrgencyCategory } from '@/types';
+import { UserAvatar } from '@/components/ui/UserAvatar';
 
 interface TriageQueueViewProps {
   onSelectPatient: (patientId: string) => void;
@@ -37,27 +44,33 @@ export function TriageQueueView({ onSelectPatient, onNavigateAssignments }: Tria
   // Filter active (non-discharged) queue
   const activeQueue = patients.filter((p) => p.status !== 'DISCHARGED');
 
-  // Sorted by Triage Engine priority score
+  // Sorted by standardized priority: Emergency -> Urgent -> Needs Review -> Routine
+  // With dynamic queue score as secondary sort within each priority bracket
   const sortedQueue = [...activeQueue].sort((a, b) => {
-    return calculateQueuePriority(b) - calculateQueuePriority(a);
+    return comparePatientsByPriority(a, b, (p1, p2) => calculateQueuePriority(p2) - calculateQueuePriority(p1));
   });
 
   const filteredQueue = sortedQueue.filter((p) => {
     if (filterCategory === 'ALL') return true;
-    const cat = p.clinicianConfirmedCategory || p.provisionalCategory;
+    const cat = getPatientEffectiveCategory(p);
     return cat === filterCategory;
   });
 
   // Partition into Emergency Alert group vs Standard Queue
   const emergencyGroup = filteredQueue.filter((p) => {
-    const cat = p.clinicianConfirmedCategory || p.provisionalCategory;
+    const cat = getPatientEffectiveCategory(p);
     return cat === 'EMERGENCY';
   });
 
-  const standardGroup = filteredQueue.filter((p) => {
-    const cat = p.clinicianConfirmedCategory || p.provisionalCategory;
-    return cat !== 'EMERGENCY';
-  });
+  // Standard group: strictly ordered Urgent -> Needs Review -> Routine
+  const standardGroup = filteredQueue
+    .filter((p) => {
+      const cat = getPatientEffectiveCategory(p);
+      return cat !== 'EMERGENCY';
+    })
+    .sort((a, b) =>
+      comparePatientsByPriority(a, b, (p1, p2) => calculateQueuePriority(p2) - calculateQueuePriority(p1))
+    );
 
   const handleOpenOverride = (e: React.MouseEvent, pId: string, currentCat: UrgencyCategory) => {
     e.stopPropagation();
@@ -155,10 +168,10 @@ export function TriageQueueView({ onSelectPatient, onNavigateAssignments }: Tria
                     <span className="w-6 h-6 rounded-full bg-red-600 text-white font-mono font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
                       {rank + 1}
                     </span>
-                    <img
+                    <UserAvatar
+                      name={patient.name}
                       src={patient.avatar}
-                      alt=""
-                      className="w-11 h-11 rounded-full object-cover shrink-0 border-2 border-red-400"
+                      size="lg"
                     />
                     <div className="min-w-0">
                       <div className="flex items-center space-x-2">
@@ -250,10 +263,10 @@ export function TriageQueueView({ onSelectPatient, onNavigateAssignments }: Tria
                   <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-600 font-mono font-bold text-xs flex items-center justify-center shrink-0">
                     {emergencyGroup.length + idx + 1}
                   </span>
-                  <img
+                  <UserAvatar
+                    name={patient.name}
                     src={patient.avatar}
-                    alt=""
-                    className="w-10 h-10 rounded-full object-cover shrink-0 border border-slate-200"
+                    size="md"
                   />
                   <div className="min-w-0">
                     <div className="flex items-center space-x-2">

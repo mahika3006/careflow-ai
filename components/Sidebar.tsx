@@ -18,7 +18,8 @@ import {
   PanelLeftOpen,
   ChevronLeft,
   ChevronRight,
-  ShieldCheck
+  ShieldCheck,
+  History
 } from 'lucide-react';
 import { useCareFlow } from '@/lib/store';
 
@@ -29,6 +30,7 @@ export type NavTab =
   | 'triage-queue' 
   | 'assignments' 
   | 'medical-records' 
+  | 'discharged-history'
   | 'reports' 
   | 'analytics' 
   | 'settings';
@@ -41,7 +43,9 @@ interface SidebarProps {
 export function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
   const { currentRole, emergencyAlertCount, patients, sidebarCollapsed, toggleSidebar } = useCareFlow();
 
-  const waitingCount = patients.filter(p => p.status === 'WAITING_AI' || p.status === 'TRIAGED').length;
+  const activePatients = patients.filter(p => p.status !== 'DISCHARGED');
+  const dischargedPatients = patients.filter(p => p.status === 'DISCHARGED');
+  const waitingCount = activePatients.filter(p => p.status === 'WAITING_AI' || p.status === 'TRIAGED').length;
 
   const navItems = [
     {
@@ -52,10 +56,17 @@ export function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
     },
     {
       id: 'patients' as NavTab,
-      label: 'Patient Dashboard',
+      label: 'Active Patients',
       icon: Users,
-      badge: patients.length,
+      badge: activePatients.length,
       roles: ['NURSE', 'DOCTOR', 'ADMIN'],
+    },
+    {
+      id: 'discharged-history' as NavTab,
+      label: 'Patient History',
+      icon: History,
+      badge: dischargedPatients.length > 0 ? dischargedPatients.length : undefined,
+      roles: ['NURSE', 'DOCTOR', 'ADMIN', 'PATIENT'],
     },
     {
       id: 'doctors' as NavTab,

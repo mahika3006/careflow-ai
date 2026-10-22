@@ -196,7 +196,7 @@ export function NewPatientModal({ isOpen, onClose, onPatientCreated }: NewPatien
         setRecordedDurationStr(`${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
         
         if (result.transcribedText) {
-          const conf = result.confidence ?? 0.88;
+          const conf = (result as any).confidence ?? 0.88;
           setAudioTranscriptConfidence(conf);
           const langLabel = INPUT_LANGUAGES.find(l => l.value === language)?.label || language.toUpperCase();
           const noteHeader = `[Audio Transcript: ${langLabel} | Confidence: ${(conf * 100).toFixed(0)}%]`;

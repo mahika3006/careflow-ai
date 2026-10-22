@@ -16,7 +16,8 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { useCareFlow } from '@/lib/store';
-import { getUrgencyStyles, isOverdue } from '@/lib/triage-rules';
+import { getUrgencyStyles, isOverdue, sortPatientsByPriority } from '@/lib/triage-rules';
+import { UserAvatar } from '@/components/ui/UserAvatar';
 
 interface OverviewViewProps {
   onSelectPatient: (patientId: string) => void;
@@ -205,7 +206,7 @@ export function OverviewView({ onSelectPatient, onNavigateTab }: OverviewViewPro
           </div>
 
           <div className="divide-y divide-slate-100 dark:divide-slate-800 flex-1">
-            {activeCases.slice(0, 5).map((patient) => {
+            {sortPatientsByPriority(activeCases).slice(0, 5).map((patient) => {
               const effectiveCat = patient.clinicianConfirmedCategory || patient.provisionalCategory;
               const styles = getUrgencyStyles(effectiveCat);
               const overdue = isOverdue(patient);
@@ -217,9 +218,7 @@ export function OverviewView({ onSelectPatient, onNavigateTab }: OverviewViewPro
                   className="p-4 hover:bg-slate-50/80 dark:hover:bg-slate-800/50 cursor-pointer transition-colors flex items-center justify-between gap-4"
                 >
                   <div className="flex items-center space-x-3.5 min-w-0">
-                    <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center font-bold text-slate-700 dark:text-slate-200 text-sm shrink-0 border border-slate-200 dark:border-slate-700">
-                      {patient.name.charAt(0)}
-                    </div>
+                    <UserAvatar name={patient.name} src={patient.avatar} size="md" />
                     <div className="min-w-0">
                       <div className="flex items-center space-x-2">
                         <span className="font-bold text-slate-900 dark:text-white text-sm truncate">
@@ -272,18 +271,13 @@ export function OverviewView({ onSelectPatient, onNavigateTab }: OverviewViewPro
                 className="p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors flex items-center justify-between"
               >
                 <div className="flex items-center space-x-3">
-                  <div className="relative">
-                    <img
+                    <UserAvatar
+                      name={doc.name}
                       src={doc.avatar}
-                      alt={doc.name}
-                      className="w-9 h-9 rounded-full object-cover border border-slate-200 dark:border-slate-700"
+                      size="md"
+                      showStatus
+                      status={doc.availabilityStatus}
                     />
-                    <span
-                      className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-slate-900 ${
-                        doc.availabilityStatus === 'AVAILABLE' ? 'bg-emerald-500' : 'bg-slate-400'
-                      }`}
-                    />
-                  </div>
                   <div>
                     <h4 className="text-xs font-bold text-slate-900 dark:text-white">
                       {doc.name}

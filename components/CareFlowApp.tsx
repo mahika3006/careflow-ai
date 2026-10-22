@@ -14,6 +14,7 @@ import { MedicalRecordsView } from '@/components/views/MedicalRecordsView';
 import { ReportsView } from '@/components/views/ReportsView';
 import { AnalyticsView } from '@/components/views/AnalyticsView';
 import { SettingsView } from '@/components/views/SettingsView';
+import { DischargedHistoryView } from '@/components/views/DischargedHistoryView';
 import { NewPatientModal } from '@/components/modals/NewPatientModal';
 
 export function CareFlowApp() {
@@ -104,6 +105,11 @@ export function CareFlowApp() {
               )}
               {activeTab === 'reports' && (
                 <ReportsView
+                  onSelectPatient={handleSelectPatient}
+                />
+              )}
+              {activeTab === 'discharged-history' && (
+                <DischargedHistoryView
                   onSelectPatient={handleSelectPatient}
                 />
               )}

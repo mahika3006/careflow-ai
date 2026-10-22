@@ -76,6 +76,16 @@ interface CareFlowContextType {
     patientId: string,
     actorName: string
   ) => void;
+  dischargePatient: (
+    patientId: string,
+    actorName: string,
+    notes?: string
+  ) => void;
+  readmitPatient: (
+    patientId: string,
+    actorName: string,
+    reason?: string
+  ) => void;
   updatePatientConsent: (
     patientId: string,
     status: 'active' | 'withdrawn',
@@ -339,9 +349,7 @@ export function CareFlowProvider({ children }: { children: React.ReactNode }) {
     const newPatient: Patient = {
       id,
       name: patientData.name || 'Anonymous Patient',
-      avatar:
-        patientData.avatar ||
-        'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=160&auto=format&fit=crop&q=80',
+      avatar: patientData.avatar || '',
       age: patientData.age || 35,
       gender: patientData.gender || 'Male',
       dob: patientData.dob,
@@ -783,6 +791,105 @@ export function CareFlowProvider({ children }: { children: React.ReactNode }) {
     );
   };
 
+  // Discharge patient from acute management to history
+  const dischargePatient = (
+    patientId: string,
+    actorName: string,
+    notes?: string
+  ) => {
+    const now = new Date().toISOString();
+    const updatedPatients = patients.map((p) => {
+      if (p.id === patientId) {
+        return {
+          ...p,
+          status: 'DISCHARGED' as const,
+          dischargedAt: now,
+          dischargeNotes: notes || 'Patient clinically stabilized and discharged.',
+          timeline: [
+            {
+              id: `TL-${Date.now()}`,
+              timestamp: now,
+              eventType: 'DISCHARGED' as const,
+              description: `Patient discharged by ${actorName}. ${notes ? `Notes: ${notes}` : ''}`,
+              actor: actorName,
+              actorRole: (currentRole === 'DOCTOR' ? 'DOCTOR' : 'NURSE') as UserRole,
+            },
+            ...p.timeline,
+          ],
+        };
+      }
+      return p;
+    });
+    savePatients(updatedPatients);
+
+    fetch(`/api/patients/${patientId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'DISCHARGED' }),
+    }).catch((e) => console.warn('Supabase discharge error:', e));
+
+    logAudit(
+      actorName,
+      currentRole === 'DOCTOR' ? 'DOCTOR' : 'NURSE',
+      'DISCHARGE_PATIENT',
+      'PATIENT',
+      patientId,
+      'Active',
+      'Discharged',
+      notes || 'Patient formal discharge finalized'
+    );
+  };
+
+  // Re-admit patient from historical records back to active workflow
+  const readmitPatient = (
+    patientId: string,
+    actorName: string,
+    reason?: string
+  ) => {
+    const now = new Date().toISOString();
+    const updatedPatients = patients.map((p) => {
+      if (p.id === patientId) {
+        return {
+          ...p,
+          status: 'TRIAGED' as const,
+          arrivalTime: now,
+          waitingDurationMinutes: 0,
+          dischargedAt: undefined,
+          timeline: [
+            {
+              id: `TL-${Date.now()}`,
+              timestamp: now,
+              eventType: 'READMITTED' as const,
+              description: `Patient re-admitted to active clinical queue by ${actorName}. Reason: ${reason || 'Recurrent / worsening acute symptoms requiring clinical evaluation.'}`,
+              actor: actorName,
+              actorRole: (currentRole === 'DOCTOR' ? 'DOCTOR' : 'NURSE') as UserRole,
+            },
+            ...p.timeline,
+          ],
+        };
+      }
+      return p;
+    });
+    savePatients(updatedPatients);
+
+    fetch(`/api/patients/${patientId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'TRIAGED' }),
+    }).catch((e) => console.warn('Supabase readmit error:', e));
+
+    logAudit(
+      actorName,
+      currentRole === 'DOCTOR' ? 'DOCTOR' : 'NURSE',
+      'READMIT_PATIENT',
+      'PATIENT',
+      patientId,
+      'Discharged',
+      'Active (Triaged)',
+      reason || 'Patient re-admitted to active clinical register without duplicate records'
+    );
+  };
+
   // Consent Management
   const updatePatientConsent = (
     patientId: string,
@@ -929,6 +1036,8 @@ export function CareFlowProvider({ children }: { children: React.ReactNode }) {
         approvePrescriptionItem,
         addPrescriptionItem,
         finalizeClinicalDocumentation,
+        dischargePatient,
+        readmitPatient,
         updatePatientConsent,
         toggleDoctorAvailability,
         updateRule,

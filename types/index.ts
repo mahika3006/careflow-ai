@@ -115,6 +115,7 @@ export interface TimelineEvent {
     | 'REFERRAL_CREATED' 
     | 'REPORT_FINALIZED' 
     | 'DISCHARGED'
+    | 'READMITTED'
     | 'CONSENT_UPDATED';
   description: string;
   actor: string;
@@ -206,6 +207,8 @@ export interface Patient {
   mediaEvidence: MediaEvidence[];
   timeline: TimelineEvent[];
   consultation?: ConsultationRecord;
+  dischargedAt?: string;
+  dischargeNotes?: string;
 }
 
 export interface Doctor {

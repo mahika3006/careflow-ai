@@ -19,6 +19,7 @@ import { useCareFlow } from '@/lib/store';
 import { UserRole } from '@/types';
 import { isOverdue } from '@/lib/triage-rules';
 import { DayNightDragger } from '@/components/DayNightDragger';
+import { UserAvatar } from '@/components/ui/UserAvatar';
 
 interface TopNavProps {
   onOpenNewIntakeModal: () => void;
@@ -238,10 +239,10 @@ export function TopNav({ onOpenNewIntakeModal, onSelectPatient }: TopNavProps) {
             onClick={() => setShowRoleMenu(!showRoleMenu)}
             className="flex items-center space-x-2 pl-2 pr-3 py-1 bg-slate-50 hover:bg-slate-100 rounded-md border border-slate-200 transition-colors"
           >
-            <img
+            <UserAvatar
+              name={activeProfile.name}
               src={activeProfile.avatar}
-              alt={activeProfile.name}
-              className="w-6 h-6 rounded-full object-cover border border-emerald-600/40"
+              size="xs"
             />
             <div className="text-left hidden sm:block">
               <div className="text-xs font-bold text-slate-900 leading-tight">
@@ -274,7 +275,7 @@ export function TopNav({ onOpenNewIntakeModal, onSelectPatient }: TopNavProps) {
                       isSelected ? 'bg-emerald-50/60 font-semibold text-emerald-900' : 'text-slate-700'
                     }`}
                   >
-                    <img src={prof.avatar} className="w-7 h-7 rounded-full object-cover" alt="" />
+                    <UserAvatar name={prof.name} src={prof.avatar} size="xs" />
                     <div className="min-w-0">
                       <div className="text-xs leading-snug">{prof.name}</div>
                       <div className="text-[10px] text-slate-500 truncate">{prof.title}</div>

@@ -24,13 +24,17 @@ import {
   HelpCircle,
   Lock,
   RotateCcw,
-  VolumeX
+  VolumeX,
+  LogOut,
+  RefreshCcw,
+  Archive
 } from 'lucide-react';
 import { useCareFlow } from '@/lib/store';
 import { UrgencyCategory, Patient } from '@/types';
 import { getUrgencyStyles, isOverdue } from '@/lib/triage-rules';
 import { generatePrintableReportHtml } from '@/lib/reports';
 import { speakWithGnani, stopGnaniSpeech } from '@/lib/audio/speech-services';
+import { UserAvatar } from '@/components/ui/UserAvatar';
 
 interface PatientDetailViewProps {
   patientId: string;
@@ -46,7 +50,9 @@ export function PatientDetailView({ patientId, onBack, onOpenDoctorWorkspace }: 
     confirmOrOverrideTriage, 
     assignDoctorToPatient, 
     updatePatientConsent,
-    updatePatient
+    updatePatient,
+    dischargePatient,
+    readmitPatient,
   } = useCareFlow();
 
   const patient = patients.find((p) => p.id === patientId);
@@ -69,6 +75,14 @@ export function PatientDetailView({ patientId, onBack, onOpenDoctorWorkspace }: 
   // Doctor Assign Modal State
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [assignDoctorId, setAssignDoctorId] = useState('');
+
+  // Discharge Modal State
+  const [showDischargeModal, setShowDischargeModal] = useState(false);
+  const [dischargeNotes, setDischargeNotes] = useState('');
+
+  // Readmit Modal State
+  const [showReadmitModal, setShowReadmitModal] = useState(false);
+  const [readmitReason, setReadmitReason] = useState('');
 
   // Gnani Neural TTS states
   const [isPlayingTriageTTS, setIsPlayingTriageTTS] = useState(false);
@@ -176,6 +190,24 @@ export function PatientDetailView({ patientId, onBack, onOpenDoctorWorkspace }: 
     );
   };
 
+  const handleDischarge = () => {
+    if (!dischargeNotes.trim()) {
+      alert('Please enter discharge notes or reason before discharging the patient.');
+      return;
+    }
+    dischargePatient(patient.id, clinicianNameInput, dischargeNotes);
+    setShowDischargeModal(false);
+    setDischargeNotes('');
+  };
+
+  const handleReadmit = () => {
+    readmitPatient(patient.id, clinicianNameInput, readmitReason || 'Re-admission requested by clinician.');
+    setShowReadmitModal(false);
+    setReadmitReason('');
+  };
+
+  const isDischargedPatient = patient?.status === 'DISCHARGED';
+
   const handleSaveEditedSynthesis = () => {
     if (!patient.aiAssessment) return;
     const updatedAssessment = {
@@ -203,7 +235,7 @@ export function PatientDetailView({ patientId, onBack, onOpenDoctorWorkspace }: 
   const handleSourceClick = (source: string) => {
     setSelectedGroundingSource(source);
     const reportMedia = patient.mediaEvidence?.find(
-      (m) => m.type === 'document' || m.title?.toLowerCase().includes('.pdf') || m.title?.toLowerCase().includes('report')
+      (m) => m.type === 'report_pdf' || (m.type as string) === 'document' || m.title?.toLowerCase().includes('.pdf') || m.title?.toLowerCase().includes('report')
     );
     if (reportMedia?.url) {
       window.open(reportMedia.url, '_blank');
@@ -222,6 +254,11 @@ export function PatientDetailView({ patientId, onBack, onOpenDoctorWorkspace }: 
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
+          <UserAvatar
+            name={patient.name}
+            src={patient.avatar}
+            size="lg"
+          />
           <div>
             <div className="flex items-center space-x-2.5 flex-wrap gap-y-1">
               <h2 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
@@ -248,48 +285,107 @@ export function PatientDetailView({ patientId, onBack, onOpenDoctorWorkspace }: 
 
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center gap-2.5 self-start sm:self-auto">
-          {/* Clinician Review / Override Button */}
-          {currentRole !== 'PATIENT' && (
-            <button
-              onClick={() => {
-                setOverrideCategory(effectiveCategory);
-                setOverrideReason(patient.overrideReason || '');
-                setShowOverrideModal(true);
-              }}
-              className="flex items-center space-x-2 px-3.5 py-2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold shadow-xs transition-all active:scale-95"
-            >
-              <Edit3 className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-              <span>Review / Override Triage</span>
-            </button>
-          )}
 
-          {/* Doctor Assignment Button */}
-          {currentRole !== 'PATIENT' && (
-            <button
-              onClick={() => {
-                setAssignDoctorId(patient.assignedDoctorId || '');
-                setShowAssignModal(true);
-              }}
-              className="flex items-center space-x-2 px-3.5 py-2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold shadow-xs transition-all active:scale-95"
-            >
-              <UserCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span>{patient.assignedDoctorName ? 'Reassign Doctor' : 'Assign Doctor'}</span>
-            </button>
-          )}
+          {isDischargedPatient ? (
+            /* ── DISCHARGED: show Re-admit + Print only ── */
+            <>
+              {currentRole !== 'PATIENT' && (
+                <button
+                  onClick={() => { setReadmitReason(''); setShowReadmitModal(true); }}
+                  className="flex items-center space-x-2 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white border border-blue-700 rounded-xl text-xs font-bold shadow-xs transition-all active:scale-95"
+                >
+                  <RefreshCcw className="w-3.5 h-3.5" />
+                  <span>Re-admit Patient</span>
+                </button>
+              )}
+              <button
+                onClick={handlePrintReport}
+                className="flex items-center space-x-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all active:scale-95"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Export Clinical Report</span>
+              </button>
+            </>
+          ) : (
+            /* ── ACTIVE: all action buttons ── */
+            <>
+              {/* Clinician Review / Override Button */}
+              {currentRole !== 'PATIENT' && (
+                <button
+                  onClick={() => {
+                    setOverrideCategory(effectiveCategory);
+                    setOverrideReason(patient.overrideReason || '');
+                    setShowOverrideModal(true);
+                  }}
+                  className="flex items-center space-x-2 px-3.5 py-2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold shadow-xs transition-all active:scale-95"
+                >
+                  <Edit3 className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+                  <span>Review / Override Triage</span>
+                </button>
+              )}
 
-          {/* Print Clinical Report */}
-          <button
-            onClick={handlePrintReport}
-            className="flex items-center space-x-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all active:scale-95 hover:shadow-emerald-500/20"
-          >
-            <Printer className="w-3.5 h-3.5" />
-            <span>Export Clinical Report</span>
-          </button>
+              {/* Doctor Assignment Button */}
+              {currentRole !== 'PATIENT' && (
+                <button
+                  onClick={() => {
+                    setAssignDoctorId(patient.assignedDoctorId || '');
+                    setShowAssignModal(true);
+                  }}
+                  className="flex items-center space-x-2 px-3.5 py-2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold shadow-xs transition-all active:scale-95"
+                >
+                  <UserCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <span>{patient.assignedDoctorName ? 'Reassign Doctor' : 'Assign Doctor'}</span>
+                </button>
+              )}
+
+              {/* Discharge Patient Button */}
+              {currentRole !== 'PATIENT' && (
+                <button
+                  onClick={() => { setDischargeNotes(''); setShowDischargeModal(true); }}
+                  className="flex items-center space-x-2 px-3.5 py-2 bg-white dark:bg-slate-800 hover:bg-red-50 dark:hover:bg-red-950/30 text-red-700 dark:text-red-400 border border-red-300 dark:border-red-800 rounded-xl text-xs font-bold shadow-xs transition-all active:scale-95"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>Discharge Patient</span>
+                </button>
+              )}
+
+              {/* Print Clinical Report */}
+              <button
+                onClick={handlePrintReport}
+                className="flex items-center space-x-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all active:scale-95 hover:shadow-emerald-500/20"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Export Clinical Report</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
 
-      {/* SLA & Waiting Warning Banner */}
-      {isOverduePatient && (
+      {/* Discharged Patient Historical Record Banner */}
+      {isDischargedPatient && (
+        <div className="p-4 bg-slate-800 border border-slate-700 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center space-x-3">
+            <div className="w-9 h-9 rounded-lg bg-slate-700 flex items-center justify-center shrink-0">
+              <Archive className="w-5 h-5 text-slate-300" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black text-white uppercase tracking-widest">Archived Historical Record</span>
+                <span className="px-2 py-0.5 bg-slate-600 text-slate-200 rounded text-[10px] font-bold border border-slate-500">READ-ONLY</span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                This patient was discharged{patient.dischargedAt ? ` on ${new Date(patient.dischargedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` : ''}.
+                {patient.dischargeNotes ? ` Discharge note: ${patient.dischargeNotes}` : ''}
+                {' '}Clinical data is preserved and read-only. Use "Re-admit Patient" to restore to active care.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SLA & Waiting Warning Banner — only for active patients */}
+      {isOverduePatient && !isDischargedPatient && (
         <div className="p-3 bg-amber-50 border border-amber-300 rounded-lg flex items-center justify-between text-xs text-amber-900">
           <div className="flex items-center space-x-2 font-medium">
             <Clock className="w-4 h-4 text-amber-600 shrink-0" />
@@ -1136,7 +1232,11 @@ export function PatientDetailView({ patientId, onBack, onOpenDoctorWorkspace }: 
                     }`}
                   >
                     <div className="flex items-center space-x-3">
-                      <img src={doc.avatar} alt="" className="w-8 h-8 rounded-full object-cover" />
+                      <UserAvatar
+                        name={doc.name}
+                        src={doc.avatar}
+                        size="sm"
+                      />
                       <div>
                         <div className="font-bold text-slate-900">{doc.name}</div>
                         <div className="text-[10px] text-slate-500">{doc.specializations[0]} • {doc.languages.join(', ')}</div>
@@ -1167,6 +1267,116 @@ export function PatientDetailView({ patientId, onBack, onOpenDoctorWorkspace }: 
                 className="px-4 py-1.5 rounded text-xs font-bold bg-[#0F2E22] hover:bg-[#164232] text-white"
               >
                 Confirm Doctor Assignment
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Discharge Patient Confirmation Modal */}
+      {showDischargeModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+              <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
+                <LogOut className="w-4 h-4 text-red-600" />
+                Discharge Patient
+              </h3>
+              <button onClick={() => setShowDischargeModal(false)} className="text-slate-400 hover:text-slate-600">
+                <XCircle className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-3">
+              <p className="text-xs text-slate-600 leading-relaxed">
+                You are about to formally discharge <strong className="text-slate-900">{patient.name}</strong> from active clinical management.
+                The patient record will be archived and remain accessible in the Patient History section.
+              </p>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1.5 uppercase tracking-wide">
+                  Discharge Notes / Clinical Reason <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={dischargeNotes}
+                  onChange={(e) => setDischargeNotes(e.target.value)}
+                  placeholder="e.g. Patient clinically stable, vitals normalized, discharged home with medication. Follow-up in 2 weeks."
+                  rows={4}
+                  className="w-full border border-slate-300 rounded-lg p-3 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-red-400 resize-none"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1.5 uppercase tracking-wide">
+                  Discharging Clinician
+                </label>
+                <input
+                  value={clinicianNameInput}
+                  onChange={(e) => setClinicianNameInput(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-red-400"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end space-x-2 pt-2 border-t border-slate-200">
+              <button
+                onClick={() => setShowDischargeModal(false)}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDischarge}
+                className="px-4 py-1.5 rounded-lg text-xs font-black bg-red-600 hover:bg-red-700 text-white flex items-center gap-1.5 transition-colors"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                Confirm Discharge
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Re-admit Patient Modal */}
+      {showReadmitModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+              <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
+                <RefreshCcw className="w-4 h-4 text-blue-600" />
+                Re-admit Patient to Active Care
+              </h3>
+              <button onClick={() => setShowReadmitModal(false)} className="text-slate-400 hover:text-slate-600">
+                <XCircle className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-3">
+              <p className="text-xs text-slate-600 leading-relaxed">
+                You are about to re-admit <strong className="text-slate-900">{patient.name}</strong> to the active clinical queue. 
+                The existing patient record will be restored without creating a duplicate entry.
+              </p>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1.5 uppercase tracking-wide">
+                  Reason for Re-admission
+                </label>
+                <textarea
+                  value={readmitReason}
+                  onChange={(e) => setReadmitReason(e.target.value)}
+                  placeholder="e.g. Worsening symptoms post-discharge, follow-up complication requiring clinical evaluation."
+                  rows={3}
+                  className="w-full border border-slate-300 rounded-lg p-3 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end space-x-2 pt-2 border-t border-slate-200">
+              <button
+                onClick={() => setShowReadmitModal(false)}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleReadmit}
+                className="px-4 py-1.5 rounded-lg text-xs font-black bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1.5 transition-colors"
+              >
+                <RefreshCcw className="w-3.5 h-3.5" />
+                Confirm Re-admission
               </button>
             </div>
           </div>

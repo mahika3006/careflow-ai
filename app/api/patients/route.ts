@@ -98,7 +98,7 @@ function mapCaseToPatient(caseItem: any): Patient {
   return {
     id: caseItem.id, // Primary UI key is the case ID
     name: p.full_name || 'Anonymous Patient',
-    avatar: p.photo_path || 'demo/patients/patient_001.jpg',
+    avatar: p.photo_path || '',
     age: p.age ?? 35,
     gender: (p.gender === 'Female' ? 'Female' : (p.gender === 'Male' ? 'Male' : 'Other')),
     contact: p.contact || 'N/A',
@@ -226,7 +226,7 @@ export async function POST(request: Request) {
         gender: body.gender || 'Other',
         contact: body.contact || 'N/A',
         allergies: Array.isArray(body.allergies) ? body.allergies.join(', ') : (body.allergies || ''),
-        photo_path: body.avatar || 'demo/patients/patient_001.jpg',
+        photo_path: body.avatar || '',
       })
       .select()
       .single();
